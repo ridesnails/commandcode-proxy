@@ -489,6 +489,7 @@ function createSseTranslator(model, completionId, created) {
             prompt_tokens: u.inputTokens ?? 0,
             completion_tokens: u.outputTokens ?? 0,
             total_tokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0),
+            prompt_tokens_details: { cached_tokens: u.cachedInputTokens ?? 0 },
           } : undefined;
           out.push(makeChunk(completionId, created, model, {}, fr, openaiUsage));
           break;
@@ -783,11 +784,12 @@ async function handleChatCompletions(req, res) {
           message: { role: 'assistant', content: fullText || null, ...(toolCalls ? { tool_calls: toolCalls } : {}) },
           finish_reason: finishReason,
         }],
-        usage: usage ? {
-          prompt_tokens: usage.inputTokens ?? 0,
-          completion_tokens: usage.outputTokens ?? 0,
-          total_tokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
-        } : undefined,
+    usage: usage ? {
+      prompt_tokens: usage.inputTokens ?? 0,
+      completion_tokens: usage.outputTokens ?? 0,
+      total_tokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+      prompt_tokens_details: { cached_tokens: usage.cachedInputTokens ?? 0 },
+    } : undefined,
       });
     }
   } catch (e) {
@@ -827,6 +829,8 @@ function buildAnthropicResponse(model, fullText, toolCalls, finishReason, usage)
     usage: {
       input_tokens: usage?.inputTokens ?? 0,
       output_tokens: usage?.outputTokens ?? 0,
+      cache_creation_input_tokens: usage?.inputTokenDetails?.cacheWriteTokens ?? null,
+      cache_read_input_tokens: usage?.cachedInputTokens ?? 0,
     },
   };
 }
