@@ -959,6 +959,19 @@ function convertAnthropicToOpenAI(anthropicReq) {
   if (anthropicReq.stop_sequences) openaiReq.stop = anthropicReq.stop_sequences;
   if (anthropicReq.metadata?.user_id) openaiReq.user = anthropicReq.metadata.user_id;
 
+  // 7. Anthropic thinking → reasoning_effort
+  if (anthropicReq.thinking) {
+    const t = anthropicReq.thinking;
+    if (t.type === 'adaptive') {
+      openaiReq.reasoning_effort = 'high';
+    } else if (t.budget_tokens !== undefined) {
+      if (t.budget_tokens < 2000) openaiReq.reasoning_effort = 'low';
+      else if (t.budget_tokens < 8000) openaiReq.reasoning_effort = 'medium';
+      else if (t.budget_tokens < 16000) openaiReq.reasoning_effort = 'high';
+      else openaiReq.reasoning_effort = 'max';
+    }
+  }
+
   return openaiReq;
 }
 
