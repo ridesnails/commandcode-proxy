@@ -6,6 +6,8 @@ Built by analyzing official CLI v0.32.3 network traffic to accurately replicate 
 
 **Features**: OpenAI Chat Completions + Anthropic Messages API | Streaming & non-streaming | Tool calling (tool_use) | Multimodal image input | Reasoning effort | Dynamic model list | Cache hit metrics | 30s/90s stream timeout
 
+**Community**: [Linux.do](https://linux.do) — a friendly Chinese tech community.
+
 ## Quick Start
 
 ```bash
@@ -322,10 +324,6 @@ print(message.content[0].text)
   "apiKey": "user_xxxxxxxxx"
 }
 ```
-
-## Community
-
-[Linux.do](https://linux.do) — a friendly Chinese tech community where this project was first shared.
 
 ## Anti-Detection
 
