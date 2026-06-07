@@ -52,7 +52,31 @@ function loadConfig() {
 }
 
 const CFG = loadConfig();
-const CC_VERSION = '0.32.3';
+let CC_VERSION = '0.32.3';
+const CC_VERSION_FALLBACK = '0.32.3';
+const CC_VERSION_REFRESH_MS = 24 * 60 * 60 * 1000; // 24h — npm registry 刷新间隔
+
+// ── 动态 CC 版本号（从 npm registry 拉取） ─────────────
+async function refreshCCVersion() {
+  try {
+    const url = 'https://registry.npmjs.org/command-code/latest';
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`npm responded with ${res.status}`);
+    const pkg = await res.json();
+    if (pkg.version && typeof pkg.version === 'string') {
+      CC_VERSION = pkg.version;
+      log('info', 'CC Version refreshed from npm', { version: CC_VERSION });
+    }
+  } catch (e) {
+    if (CC_VERSION === CC_VERSION_FALLBACK) {
+      CC_VERSION = CC_VERSION_FALLBACK;
+    }
+    log('warn', 'CC Version fetch failed, using current', { version: CC_VERSION, error: e.message });
+  }
+}
+refreshCCVersion(); // 启动时立即拉取
+setInterval(refreshCCVersion, CC_VERSION_REFRESH_MS);
+
 const STREAM_IDLE_TIMEOUT_MS = 30000;   // 30s — 流式无新数据中断
 const NONSTREAM_IDLE_TIMEOUT_MS = 90000; // 90s — 非流式超时更宽容
 
