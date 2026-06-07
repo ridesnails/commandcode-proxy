@@ -738,7 +738,11 @@ async function handleChatCompletions(req, res) {
       });
     }
   } catch (e) {
-    sendJSON(res, 502, { error: { message: `Upstream error: ${e.message}`, type: 'proxy_error', input_tokens: 0 } });
+    if (e.message === 'STREAM_IDLE_TIMEOUT') {
+      sendJSON(res, 429, { error: { message: 'Response timeout', type: 'rate_limit_error', input_tokens: 0 }, retry_after: 5 });
+    } else {
+      sendJSON(res, 502, { error: { message: `Upstream error: ${e.message}`, type: 'proxy_error', input_tokens: 0 } });
+    }
   }
 }
 
@@ -1187,7 +1191,11 @@ async function handleMessages(req, res) {
       sendJSON(res, 200, buildAnthropicResponse(model, fullText, toolCalls, finishReason, usage));
     }
   } catch (e) {
-    sendAnthropicError(res, 502, 'proxy_error', `Upstream error: ${e.message}`);
+    if (e.message === 'STREAM_IDLE_TIMEOUT') {
+      sendAnthropicError(res, 429, 'rate_limit_error', 'Response timeout');
+    } else {
+      sendAnthropicError(res, 502, 'proxy_error', `Upstream error: ${e.message}`);
+    }
   }
 }
 
