@@ -6,29 +6,21 @@
 
 ## 快速开始
 
-### 方式一：配置文件
+```bash
+# 启动代理
+npm start
 
-编辑 `config.json`，填入 API Key：
-
-```json
-{
-  "port": 3050,
-  "apiKey": "user_xxxxxxxxxxxxxxxxxxxx"
-}
+# 默认监听 http://0.0.0.0:3000（可通过 config.json 或环境变量修改端口）
 ```
+
+API Key 通过请求头传入，无需配置到文件中：
 
 ```bash
-npm start
+curl http://127.0.0.1:3050/v1/chat/completions \
+  -H "Authorization: Bearer user_xxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek/deepseek-v4-flash","messages":[{"role":"user","content":"hi"}]}'
 ```
-
-### 方式二：环境变量
-
-```bash
-set CC_API_KEY=user_xxxxxxxxx
-npm start
-```
-
-默认监听 `http://0.0.0.0:3000`。
 
 ## 文件结构
 
@@ -48,32 +40,25 @@ commandcode/
 |------|--------|------|
 | `port` | `3000` | 监听端口 |
 | `host` | `0.0.0.0` | 监听地址 |
-| `apiKey` | `""` | Command Code API Key |
 | `apiBase` | `https://api.commandcode.ai` | CC API 地址 |
 | `projectSlug` | `cc-proxy` | `x-project-slug` header |
 | `logFile` | `""` | 日志文件路径（空=仅控制台） |
 | `logLevel` | `info` | 日志级别 |
 | `useProviderModels` | `true` | 从 Provider API 动态拉取模型列表 |
 | `modelRefreshIntervalMs` | `300000` | 模型列表缓存刷新间隔（5min） |
-| `enableVision` | `false` | 启用 vision pipeline（图片→文本描述） |
-| `visionModel` | `moonshotai/Kimi-K2.6` | vision pipeline 使用的模型 |
 
 > **注意**：图片输入已通过 `image_url` 原生支持，直接用 vision 模型即可，无需 `enableVision`。`enableVision` 是为不支持的模型准备的图片→文本降级方案。
 
-### 环境变量（优先级高于 config.json）
+### 环境变量
 
-| 变量 | 说明 |
-|------|------|
-| `CC_API_KEY` | API Key |
-| `PORT` | 端口 |
-| `HOST` | 监听地址 |
-| `CC_API_BASE` | CC API 地址 |
-| `PROJECT_SLUG` | `x-project-slug` header |
+| 变量 | 对应 config 字段 |
+|------|-----------------|
+| `PORT` | `port` |
+| `HOST` | `host` |
+| `CC_API_BASE` | `apiBase` |
+| `PROJECT_SLUG` | `projectSlug` |
+| `LOG_FILE` | `logFile` |
 | `CC_USE_PROVIDER_MODELS` | `useProviderModels` |
-| `CC_VISION_MODEL` | `visionModel` |
-| `CC_ENABLE_VISION` | `enableVision` |
-
-## API 接口
 
 ### `POST /v1/chat/completions`
 
@@ -133,7 +118,7 @@ data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"index":
 data: [DONE]
 ```
 
-**非流式响应：**
+**非流式响应（含缓存命中）：**
 ```json
 {
   "id": "chatcmpl-xxx",
@@ -145,7 +130,12 @@ data: [DONE]
     "message": { "role": "assistant", "content": "Hello!" },
     "finish_reason": "stop"
   }],
-  "usage": { "prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30 }
+  "usage": {
+    "prompt_tokens": 7558,
+    "completion_tokens": 42,
+    "total_tokens": 7600,
+    "prompt_tokens_details": { "cached_tokens": 7552 }
+  }
 }
 ```
 
@@ -182,7 +172,7 @@ System prompt 放在顶层（非 messages 数组中），与 Anthropic 原生格
 | HTTP 状态 | 说明 |
 |-----------|------|
 | 400 | 请求格式错误 |
-| 401 | API Key 无效或缺失 |
+| 401 | API Key 缺失/格式不对/无效（Key 必须以 `user_` 开头） |
 | 429 | 速率限制（含 `retry_after` 字段） |
 | 502 | CC 上游错误 |
 | 503 | 服务暂时不可用 |
@@ -284,7 +274,7 @@ curl http://127.0.0.1:3050/v1/chat/completions \
 
 | 机制 | 实现 |
 |------|------|
-| **固定 Session** | 每个进程一个 session，2h 过期 + 30min 抖动 |
+| **固定 Session** | 每个进程一个 session，12h 过期 + 1h 随机抖动 |
 | **最新版本号** | `x-command-code-version: 0.32.3` |
 | **CLI 信封格式** | config/memory/taste/permissionMode/params/threadId |
 | **OpenTelemetry** | `traceparent` (W3C Trace Context) |
@@ -330,9 +320,9 @@ CLI 发送的真实请求体结构（抓包还原）：
 
 - **非官方**：本项目与 Command Code 无任何关联，非官方产品。
 - **个人使用**：使用者应自行承担所有责任。请遵守 [Command Code 服务条款](https://commandcode.ai/tos)。
-- **API Key**：本项目不会收集、上传或泄露你的 API Key。Key 仅存储在本地 `config.json` 中，已通过 `.gitignore` 排除。
+- **API Key**：本项目不会收集、上传或泄露你的 API Key。Key 必须在每次请求的 `Authorization: Bearer <key>` 头中传入，不存储在配置中。
 - **逆向工程**：协议基于对本地 CLI 网络流量的被动观察，未对服务端进行任何未授权访问、破解或篡改。
-- **账号风险**：过度使用代理可能触发 CC 的风控机制。建议和正常 CLI 使用频率保持一致，不要超高并发调用。
+- **账号风险**：建议和正常 CLI 使用频率保持一致，超高并发调用可能触发风控。
 
 ## 开发
 
