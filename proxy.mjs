@@ -653,12 +653,16 @@ async function handleChatCompletions(req, res) {
 
         res.write(translator.getDoneEvent());
       } catch (e) {
-        // 流中断 → 掐断连接，客户端视为连接断开自动重试
         if (e.message === 'STREAM_IDLE_TIMEOUT') {
           log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
-        }
-        if (!res.writableEnded) {
-          try { res.destroy(); } catch {}
+          if (!res.writableEnded) {
+            try { res.destroy(); } catch {}
+          }
+        } else {
+          log('error', 'Stream error', { message: e.message });
+          if (!res.writableEnded) {
+            try { res.write(`data: ${JSON.stringify({ error: { message: e.message, type: 'proxy_error' } })}\n\n`); } catch {}
+          }
         }
       }
 
@@ -1153,12 +1157,18 @@ async function handleMessages(req, res) {
           res.write(event);
         }
       } catch (e) {
-        // 流中断 → 掐断连接
         if (e.message === 'STREAM_IDLE_TIMEOUT') {
           log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
-        }
-        if (!res.writableEnded) {
-          try { res.destroy(); } catch {}
+          if (!res.writableEnded) {
+            try { res.destroy(); } catch {}
+          }
+        } else {
+          log('error', 'Anthropic stream error', { message: e.message });
+          if (!res.writableEnded) {
+            try {
+              res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'internal_error', message: e.message } })}\n\n`);
+            } catch {}
+          }
         }
       }
 
