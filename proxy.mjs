@@ -607,6 +607,7 @@ async function handleChatCompletions(req, res) {
       return;
     }
 
+    let reader = null;
     if (stream) {
       // ── 流式响应 ──
       res.writeHead(200, {
@@ -618,7 +619,7 @@ async function handleChatCompletions(req, res) {
       const translator = createSseTranslator(model, completionId, created);
       let buffer = '';
       const decoder = new TextDecoder();
-      const reader = ccResponse.body.getReader();
+      reader = ccResponse.body.getReader();
 
       try {
         while (true) {
@@ -655,6 +656,7 @@ async function handleChatCompletions(req, res) {
       } catch (e) {
         if (e.message === 'STREAM_IDLE_TIMEOUT') {
           log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
+          try { reader.cancel(); } catch {}
           if (!res.writableEnded) {
             try { res.destroy(); } catch {}
           }
@@ -675,7 +677,7 @@ async function handleChatCompletions(req, res) {
       let usage = null;
       let toolCalls = null;
 
-      const reader = ccResponse.body.getReader();
+      reader = ccResponse.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
 
@@ -759,6 +761,7 @@ async function handleChatCompletions(req, res) {
   } catch (e) {
     if (e.message === 'STREAM_IDLE_TIMEOUT') {
       log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
+      try { reader?.cancel(); } catch {}
       sendJSON(res, 429, { error: { message: 'Response timeout', type: 'rate_limit_error', input_tokens: 0 }, retry_after: 5 });
     } else {
       log('error', 'Upstream error', { message: e.message, stack: e.stack?.split('\n')[1]?.trim() });
@@ -1003,104 +1006,107 @@ async function* createAnthropicSseTranslator(response, model) {
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const result = await Promise.race([
-      reader.read(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('STREAM_IDLE_TIMEOUT')), STREAM_IDLE_TIMEOUT_MS)
-      ),
-    ]);
-    const { done, value } = result;
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+  try {
+    while (true) {
+      const result = await Promise.race([
+        reader.read(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('STREAM_IDLE_TIMEOUT')), STREAM_IDLE_TIMEOUT_MS)
+        ),
+      ]);
+      const { done, value } = result;
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed === '[DONE]') continue;
-      let event;
-      try { event = JSON.parse(trimmed); } catch { continue; }
-      if (!event.type) continue;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === '[DONE]') continue;
+        let event;
+        try { event = JSON.parse(trimmed); } catch { continue; }
+        if (!event.type) continue;
 
-      switch (event.type) {
-        case 'start': case 'start-step': case 'text-start': case 'reasoning-start':
-          // Signal events, no user-visible data
-          break;
+        switch (event.type) {
+          case 'start': case 'start-step': case 'text-start': case 'reasoning-start':
+            // Signal events, no user-visible data
+            break;
 
-        case 'reasoning-delta':
-          // Anthropic Messages API default mode doesn't expose thinking blocks
-          break;
+          case 'reasoning-delta':
+            // Anthropic Messages API default mode doesn't expose thinking blocks
+            break;
 
-        case 'text-delta': {
-          const text = event.text || '';
-          if (!text) break;
-          const startBlock = startTextBlock();
-          if (startBlock) yield startBlock;
-          yield `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'text_delta', text } })}\n\n`;
-          outputTokens += Math.ceil(text.length / 4);
-          break;
-        }
-
-        case 'tool-call': {
-          // Close any pending text block
-          const closeBlock = closeTextBlock();
-          if (closeBlock) yield closeBlock;
-
-          const id = event.toolCallId || `toolu_${randomUUID().slice(0, 12)}`;
-          const name = event.toolName || '';
-          const input = typeof event.input === 'string' ? event.input : JSON.stringify(event.input || {});
-
-          const tcIndex = nextBlockIndex++;
-
-          yield `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: tcIndex, content_block: { type: 'tool_use', id, name, input: {} } })}\n\n`;
-          yield `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: tcIndex, delta: { type: 'input_json_delta', partial_json: input } })}\n\n`;
-          yield `event: content_block_stop\ndata: ${JSON.stringify({ type: 'content_block_stop', index: tcIndex })}\n\n`;
-
-          outputTokens += 20;
-          break;
-        }
-
-        case 'finish-step':
-        case 'finish': {
-          if (event.finishReason) stopReason = mapAnthropicStopReason(event.finishReason);
-          const u = event.totalUsage || event.usage;
-          if (u) {
-            // If CC produced 0 output tokens, zero input to avoid false billing
-            if (Number(u.outputTokens) === 0) {
-              u.inputTokens = 0;
-              u.cachedInputTokens = 0;
-            }
-            inputTokens = u.inputTokens ?? inputTokens;
-            outputTokens = u.outputTokens ?? outputTokens;
-            cachedInputTokens = u.cachedInputTokens ?? cachedInputTokens;
-            cacheWriteTokens = u.inputTokenDetails?.cacheWriteTokens ?? cacheWriteTokens;
+          case 'text-delta': {
+            const text = event.text || '';
+            if (!text) break;
+            const startBlock = startTextBlock();
+            if (startBlock) yield startBlock;
+            yield `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: currentBlockIndex, delta: { type: 'text_delta', text } })}\n\n`;
+            outputTokens += Math.ceil(text.length / 4);
+            break;
           }
-          break;
-        }
 
-        case 'error': {
-          hasError = true;
-          const msg = event.error?.message || event.message || 'Unknown CC error';
-          yield `event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'internal_error', message: msg } })}\n\n`;
-          break;
+          case 'tool-call': {
+            // Close any pending text block
+            const closeBlock = closeTextBlock();
+            if (closeBlock) yield closeBlock;
+
+            const id = event.toolCallId || `toolu_${randomUUID().slice(0, 12)}`;
+            const name = event.toolName || '';
+            const input = typeof event.input === 'string' ? event.input : JSON.stringify(event.input || {});
+
+            const tcIndex = nextBlockIndex++;
+            yield `event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: tcIndex, content_block: { type: 'tool_use', id, name, input: {} } })}\n\n`;
+            yield `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: tcIndex, delta: { type: 'input_json_delta', partial_json: input } })}\n\n`;
+            yield `event: content_block_stop\ndata: ${JSON.stringify({ type: 'content_block_stop', index: tcIndex })}\n\n`;
+            outputTokens += 20;
+            break;
+          }
+
+          case 'finish-step':
+          case 'finish': {
+            if (event.finishReason) stopReason = mapAnthropicStopReason(event.finishReason);
+            const u = event.totalUsage || event.usage;
+            if (u) {
+              // If CC produced 0 output tokens, zero input to avoid false billing
+              if (Number(u.outputTokens) === 0) {
+                u.inputTokens = 0;
+                u.cachedInputTokens = 0;
+              }
+              inputTokens = u.inputTokens ?? inputTokens;
+              outputTokens = u.outputTokens ?? outputTokens;
+              cachedInputTokens = u.cachedInputTokens ?? cachedInputTokens;
+              cacheWriteTokens = u.inputTokenDetails?.cacheWriteTokens ?? cacheWriteTokens;
+            }
+            break;
+          }
+
+          case 'error': {
+            hasError = true;
+            const msg = event.error?.message || event.message || 'Unknown CC error';
+            yield `event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'internal_error', message: msg } })}\n\n`;
+            break;
+          }
         }
       }
     }
-  }
 
-  // Finalize — close pending text block, emit message_delta + message_stop
-  if (!hasError) {
-    const closeBlock = closeTextBlock();
-    if (closeBlock) yield closeBlock;
+    // Finalize — close pending text block, emit message_delta + message_stop
+    if (!hasError) {
+      const closeBlock = closeTextBlock();
+      if (closeBlock) yield closeBlock;
 
-    yield `event: message_delta\ndata: ${JSON.stringify({
-      type: 'message_delta',
-      delta: { stop_reason: stopReason || 'end_turn' },
-      usage: { output_tokens: outputTokens, cache_read_input_tokens: cachedInputTokens, cache_creation_input_tokens: cacheWriteTokens || null, input_tokens: inputTokens },
-    })}\n\n`;
+      yield `event: message_delta\ndata: ${JSON.stringify({
+        type: 'message_delta',
+        delta: { stop_reason: stopReason || 'end_turn' },
+        usage: { output_tokens: outputTokens, cache_read_input_tokens: cachedInputTokens, cache_creation_input_tokens: cacheWriteTokens || null, input_tokens: inputTokens },
+      })}\n\n`;
 
-    yield `event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`;
+      yield `event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`;
+    }
+  } finally {
+    // 确保流中断时通知上游
+    try { reader.cancel(); } catch {}
   }
 }
 
@@ -1132,6 +1138,7 @@ async function handleMessages(req, res) {
   const ccBody = buildCcRequest(openaiReq);
 
   try {
+    let reader = null;
     const ccResponse = await forwardToCC(ccBody, apiKey, req.headers);
 
     if (!ccResponse.ok) {
@@ -1180,7 +1187,7 @@ async function handleMessages(req, res) {
       let usage = null;
       let toolCalls = null;
 
-      const reader = ccResponse.body.getReader();
+      reader = ccResponse.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
 
@@ -1235,6 +1242,7 @@ async function handleMessages(req, res) {
   } catch (e) {
     if (e.message === 'STREAM_IDLE_TIMEOUT') {
       log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
+      try { reader?.cancel(); } catch {}
       sendAnthropicError(res, 429, 'rate_limit_error', 'Response timeout');
     } else {
       log('error', 'Upstream error', { message: e.message });
