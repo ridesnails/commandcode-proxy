@@ -757,6 +757,7 @@ async function handleChatCompletions(req, res) {
       log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
       sendJSON(res, 429, { error: { message: 'Response timeout', type: 'rate_limit_error', input_tokens: 0 }, retry_after: 5 });
     } else {
+      log('error', 'Upstream error', { message: e.message, stack: e.stack?.split('\n')[1]?.trim() });
       sendJSON(res, 502, { error: { message: `Upstream error: ${e.message}`, type: 'proxy_error', input_tokens: 0 } });
     }
   }
@@ -1226,6 +1227,7 @@ async function handleMessages(req, res) {
       log('warn', 'Stream idle timeout', { keyPrefix: apiKey ? apiKey.slice(0, 8) + '...' : 'unknown' });
       sendAnthropicError(res, 429, 'rate_limit_error', 'Response timeout');
     } else {
+      log('error', 'Upstream error', { message: e.message });
       sendAnthropicError(res, 502, 'proxy_error', `Upstream error: ${e.message}`);
     }
   }
