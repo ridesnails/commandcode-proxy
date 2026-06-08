@@ -176,6 +176,22 @@ const MODELS = [
 
 // ── 工具函数 ───────────────────────────────────────
 
+// 从 sessionId 构造一个假的工作目录路径，再按真实 CLI 规则生成 slug
+// 结果形如 "d-users-dev-projects-web-app-a3f2" (和真实 CLI 的 slug 格式一致)
+function fakeProjectSlug(sessionId) {
+  const names = ['app', 'api', 'backend', 'bot', 'cli', 'core', 'data', 'frontend',
+    'lib', 'plugin', 'proxy', 'server', 'service', 'tool', 'web', 'worker'];
+  const name = names[parseInt(sessionId.slice(0, 4), 16) % names.length];
+  const suffix = sessionId.slice(0, 4);
+  // 模拟一个类似 C:\Users\dev\projects\{name}-{suffix} 的路径
+  const path = `C:\\Users\\dev\\projects\\${name}-${suffix}`;
+  return path
+    .toLowerCase()
+    .replace(/^[a-z]:/i, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 function generateTraceparent() {
   const traceId = crypto.randomBytes(16).toString('hex');
   const parentId = crypto.randomBytes(8).toString('hex');
@@ -561,7 +577,7 @@ async function forwardToCC(body, apiKey, incomingHeaders = {}) {
       'x-session-id': sessionId,
       'x-co-flag': 'false',
       'x-taste-learning': 'false',
-      'x-project-slug': CFG.projectSlug,
+      'x-project-slug': fakeProjectSlug(sessionId),
       'traceparent': traceparent,
     },
     body: JSON.stringify(body),
