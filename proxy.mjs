@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Command Code → OpenAI 兼容代理
  * 基于真实 CLI 流量抓包数据构建
  */
@@ -682,7 +682,7 @@ async function handleChatCompletions(req, res) {
           })}\n\n`);
           res.write('data: [DONE]\n\n');
         } catch {}
-        abortController.abort();
+        try { abortController.abort(); } catch {}
       }
       log('warn', 'Client disconnected', {
         path: '/v1/chat/completions',
@@ -754,7 +754,7 @@ async function handleChatCompletions(req, res) {
           }
           // 输出 token 为 0 时记为错误，避免下游异常计费
           if (translator.outputTokens === 0) {
-            if (!abortController.signal.aborted) abortController.abort();
+            try { if (!abortController.signal.aborted) abortController.abort(); } catch {}
             if (!started) {
               sendJSON(res, 502, { error: { message: 'Empty response from upstream (zero output tokens)', type: 'proxy_error', input_tokens: 0 } });
               return;
@@ -792,7 +792,7 @@ async function handleChatCompletions(req, res) {
             cachedInputTokens: translator.cachedInputTokens,
           });
           try { reader.cancel(); } catch {}
-          abortController.abort(); // 打断 CC 上游，避免浪费 token
+          try { abortController.abort(); } catch {} // 打断 CC 上游，避免浪费 token
           consecutiveTimeouts++;
           const timeoutMsg = consecutiveTimeouts >= TIMEOUT_REDUCE_CONTEXT_THRESHOLD
             ? 'Response timeout - try reducing context length (summarize earlier messages)'
@@ -807,7 +807,7 @@ async function handleChatCompletions(req, res) {
           }
         } else {
           log('error', 'Stream error', { message: e.message });
-          abortController.abort(); // 打断 CC 上游
+          try { abortController.abort(); } catch {} // 打断 CC 上游
           if (!started) {
             sendJSON(res, 502, { error: { message: `Upstream error: ${e.message}`, type: 'proxy_error', input_tokens: 0 } });
             return;
@@ -888,7 +888,7 @@ async function handleChatCompletions(req, res) {
 
       // 输出 token 为 0 时记为错误，避免下游异常计费
       if ((usage?.outputTokens ?? 0) === 0) {
-        if (!abortController.signal.aborted) abortController.abort();
+        try { if (!abortController.signal.aborted) abortController.abort(); } catch {}
         sendJSON(res, 502, { error: { message: 'Empty response from upstream (zero output tokens)', type: 'proxy_error', input_tokens: 0 } });
         return;
       }
@@ -940,7 +940,7 @@ async function handleChatCompletions(req, res) {
         partialLen: fullText ? fullText.length : 0,
       });
       try { reader?.cancel(); } catch {}
-      abortController.abort(); // 打断 CC 上游
+      try { abortController.abort(); } catch {} // 打断 CC 上游
       consecutiveTimeouts++;
       const timeoutMsg = consecutiveTimeouts >= TIMEOUT_REDUCE_CONTEXT_THRESHOLD
         ? 'Response timeout - try reducing context length (summarize earlier messages)'
@@ -949,7 +949,7 @@ async function handleChatCompletions(req, res) {
       sendJSON(res, 429, { error: { message: timeoutMsg, type: 'rate_limit_error', input_tokens: 0 }, retry_after: 5 });
     } else {
       log('error', 'Upstream error', { message: e.message });
-      abortController.abort(); // 打断 CC 上游
+      try { abortController.abort(); } catch {} // 打断 CC 上游
       sendJSON(res, 502, { error: { message: `Upstream error: ${e.message}`, type: 'proxy_error', input_tokens: 0 } });
     }
   }
@@ -1366,7 +1366,7 @@ async function handleMessages(req, res) {
           })}\n\n`);
           res.write(`event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`);
         } catch {}
-        abortController.abort();
+        try { abortController.abort(); } catch {}
       }
       log('warn', 'Client disconnected', {
         path: '/v1/messages',
@@ -1411,7 +1411,7 @@ async function handleMessages(req, res) {
         if (!aborted) {
           consecutiveTimeouts = 0;
           if (ctx.outputTokens === 0) {
-            abortController.abort();
+            try { abortController.abort(); } catch {}
             if (!started) {
               sendAnthropicError(res, 502, 'proxy_error', 'Empty response from upstream (zero output tokens)');
               return;
@@ -1449,7 +1449,7 @@ async function handleMessages(req, res) {
             outputTokens: ctx.outputTokens,
             cachedInputTokens: ctx.cachedInputTokens,
           });
-          abortController.abort(); // 打断 CC 上游
+          try { abortController.abort(); } catch {} // 打断 CC 上游
           if (!started) {
             consecutiveTimeouts++;
             const timeoutMsg = consecutiveTimeouts >= TIMEOUT_REDUCE_CONTEXT_THRESHOLD
@@ -1468,7 +1468,7 @@ async function handleMessages(req, res) {
           }
         } else {
           log('error', 'Anthropic stream error', { message: e.message });
-          abortController.abort(); // 打断 CC 上游
+          try { abortController.abort(); } catch {} // 打断 CC 上游
           if (!started) {
             sendAnthropicError(res, 502, 'proxy_error', `Upstream error: ${e.message}`);
             return;
@@ -1546,7 +1546,7 @@ async function handleMessages(req, res) {
 
       // 输出 token 为 0 时记为错误，避免下游异常计费
       if ((usage?.outputTokens ?? 0) === 0) {
-        if (!abortController.signal.aborted) abortController.abort();
+        try { if (!abortController.signal.aborted) abortController.abort(); } catch {}
         sendAnthropicError(res, 502, 'proxy_error', 'Empty response from upstream (zero output tokens)');
         return;
       }
@@ -1574,7 +1574,7 @@ async function handleMessages(req, res) {
         partialLen: fullText ? fullText.length : 0,
       });
       try { reader?.cancel(); } catch {}
-      abortController.abort(); // 打断 CC 上游
+      try { abortController.abort(); } catch {} // 打断 CC 上游
       consecutiveTimeouts++;
       const timeoutMsg = consecutiveTimeouts >= TIMEOUT_REDUCE_CONTEXT_THRESHOLD
         ? 'Response timeout - try reducing context length (summarize earlier messages)'
@@ -1583,7 +1583,7 @@ async function handleMessages(req, res) {
       sendAnthropicError(res, 429, 'rate_limit_error', timeoutMsg);
     } else {
       log('error', 'Upstream error', { message: e.message });
-      abortController.abort(); // 打断 CC 上游
+      try { abortController.abort(); } catch {} // 打断 CC 上游
       sendAnthropicError(res, 502, 'proxy_error', `Upstream error: ${e.message}`);
     }
   }
